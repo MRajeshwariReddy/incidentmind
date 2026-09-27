@@ -6,14 +6,20 @@ logger = logging.getLogger("incidentmind.memory")
 
 _local_memory_store: List[Dict[str, Any]] = []
 
+def clear_local_memory_store() -> None:
+    """Helper to reset local memory store for testing or isolated runs."""
+    global _local_memory_store
+    _local_memory_store = []
+
 def get_hindsight_client():
     if not config.HINDSIGHT_API_KEY:
-        logger.warning("HINDSIGHT_API_KEY is not configured. Hindsight memory client will operate in fallback mode.")
+        logger.warning("HINDSIGHT_API_KEY is not configured. Hindsight memory client will operate in local fallback mode.")
         return None
     try:
         from hindsight_client import Hindsight
+        base_url = config.HINDSIGHT_API_URL or "https://api.hindsight.vectorize.io"
         client = Hindsight(
-            base_url=config.HINDSIGHT_API_URL or "https://api.hindsight.tech",
+            base_url=base_url,
             api_key=config.HINDSIGHT_API_KEY
         )
         return client
@@ -36,6 +42,8 @@ def retain_incident_resolution(
 ) -> Dict[str, Any]:
     """
     Retains a resolved incident and its lesson/resolution in Hindsight memory.
+    If HINDSIGHT_API_KEY is configured, uses Hindsight Cloud.
+    Raises RuntimeError if Hindsight Cloud is configured but fails.
     """
     bank = bank_id or config.HINDSIGHT_BANK_ID or "incidentmind-default"
 
@@ -60,28 +68,13 @@ def retain_incident_resolution(
         "type": "incident_resolution"
     }
 
-    # Always keep in local fallback store for seamless demonstration/testing
-    local_record = {
-        "incident_id": incident_id,
-        "service": service,
-        "severity": severity,
-        "description": description,
-        "error_logs": error_logs,
-        "recent_changes": recent_changes,
-        "confirmed_root_cause": confirmed_root_cause,
-        "resolution": resolution,
-        "runbook_used": runbook_used,
-        "lesson_learned": lesson_learned,
-        "formatted_text": memory_payload
-    }
-    _local_memory_store.append(local_record)
-
     client = get_hindsight_client()
+
     if client:
+        # Hindsight Cloud is configured - use real Hindsight Cloud
         try:
-            # Ensure bank exists if using cloud
             try:
-                client.create_bank(bank_id=bank, name="IncidentMind Memory Bank")
+                client.create_bank(bank_id=bank, name=f"IncidentMind Bank {bank}")
             except Exception:
                 pass # Bank may already exist
 
@@ -93,10 +86,28 @@ def retain_incident_resolution(
             )
             return {"status": "success", "source": "hindsight_cloud", "response": str(response)}
         except Exception as e:
-            logger.error(f"Hindsight API retain error: {e}")
-            return {"status": "fallback", "source": "local_fallback", "error": str(e)}
+            err_msg = f"Hindsight Cloud API retain failed for bank '{bank}': {e}"
+            logger.error(err_msg)
+            # Do NOT silently fallback if credentials are explicitly configured
+            raise RuntimeError(err_msg) from e
     else:
-        return {"status": "success", "source": "local_fallback", "message": "Retained in memory"}
+        # Local fallback mode when no credentials are provided
+        local_record = {
+            "bank_id": bank,
+            "incident_id": incident_id,
+            "service": service,
+            "severity": severity,
+            "description": description,
+            "error_logs": error_logs,
+            "recent_changes": recent_changes,
+            "confirmed_root_cause": confirmed_root_cause,
+            "resolution": resolution,
+            "runbook_used": runbook_used,
+            "lesson_learned": lesson_learned,
+            "formatted_text": memory_payload
+        }
+        _local_memory_store.append(local_record)
+        return {"status": "success", "source": "local_fallback", "message": "Retained in local memory"}
 
 def recall_similar_incidents(
     query: str,
@@ -104,14 +115,15 @@ def recall_similar_incidents(
     bank_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Recalls historical incident memories relevant to the current problem description or error logs.
+    Recalls historical incident memories relevant to the query from Hindsight memory.
+    If HINDSIGHT_API_KEY is configured, queries Hindsight Cloud.
+    Raises RuntimeError if Hindsight Cloud is configured but fails.
     """
     bank = bank_id or config.HINDSIGHT_BANK_ID or "incidentmind-default"
     client = get_hindsight_client()
 
-    recalled_items: List[Dict[str, Any]] = []
-
     if client:
+        # Hindsight Cloud is configured
         try:
             recall_resp = client.recall(
                 bank_id=bank,
@@ -120,40 +132,59 @@ def recall_similar_incidents(
                 budget="mid"
             )
 
-            # Extract results from RecallResponse
+            recalled_items: List[Dict[str, Any]] = []
             results = getattr(recall_resp, "results", []) or getattr(recall_resp, "memories", [])
             for item in results:
-                text = getattr(item, "text", "") or getattr(item, "content", "") or str(item)
-                score = getattr(item, "score", 0.0) or getattr(item, "relevance", 1.0)
-                meta = getattr(item, "metadata", {}) or {}
-                recalled_items.append({
-                    "content": text,
-                    "relevance_score": float(score) if score else 0.85,
-                    "metadata": meta,
-                    "source": "hindsight_cloud"
-                })
-        except Exception as e:
-            logger.error(f"Hindsight API recall error: {e}")
+                # Official SDK memory text field
+                text = getattr(item, "text", None) or getattr(item, "content", None) or str(item)
 
-    # Fallback / local memory retrieval matching
-    if not recalled_items and _local_memory_store:
+                mem_dict = {
+                    "content": text,
+                    "source": "hindsight_cloud",
+                    "type": getattr(item, "type", "historical_memory")
+                }
+
+                # Only include score if provided by SDK without fabricating
+                raw_score = getattr(item, "score", None) or getattr(item, "relevance", None)
+                if raw_score is not None:
+                    mem_dict["relevance_score"] = float(raw_score)
+
+                meta = getattr(item, "metadata", None)
+                if meta:
+                    mem_dict["metadata"] = meta
+
+                recalled_items.append(mem_dict)
+
+            return recalled_items
+        except Exception as e:
+            err_msg = f"Hindsight Cloud API recall failed for bank '{bank}': {e}"
+            logger.error(err_msg)
+            # Do NOT silently fallback if credentials are explicitly configured
+            raise RuntimeError(err_msg) from e
+    else:
+        # Local fallback mode when no credentials are provided
+        recalled_items = []
         query_terms = [t.lower() for t in query.replace("\n", " ").split() if len(t) > 2]
+
         for item in _local_memory_store:
+            # Respect bank_id isolation in local memory
+            if item.get("bank_id") and item.get("bank_id") != bank:
+                continue
+
             item_text = item["formatted_text"].lower()
             matches = sum(1 for term in query_terms if term in item_text)
             if matches > 0 or (service and service.lower() == item["service"].lower()):
                 recalled_items.append({
                     "content": item["formatted_text"],
-                    "relevance_score": min(0.95, 0.5 + (matches * 0.1)),
+                    "source": "local_fallback",
+                    "type": "incident_resolution",
                     "metadata": {
                         "incident_id": item["incident_id"],
                         "service": item["service"],
                         "severity": item["severity"]
-                    },
-                    "source": "local_memory"
+                    }
                 })
-
-    return recalled_items
+        return recalled_items
 
 def get_memory_stats(bank_id: Optional[str] = None) -> Dict[str, Any]:
     return {

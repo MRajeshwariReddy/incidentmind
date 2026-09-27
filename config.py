@@ -22,7 +22,7 @@ GROQ_API_KEY = get_config_val("GROQ_API_KEY", "")
 GROQ_MODEL = get_config_val("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 HINDSIGHT_API_KEY = get_config_val("HINDSIGHT_API_KEY", "")
-HINDSIGHT_API_URL = get_config_val("HINDSIGHT_API_URL", "https://api.hindsight.tech")
+HINDSIGHT_API_URL = get_config_val("HINDSIGHT_API_URL", "https://api.hindsight.vectorize.io")
 HINDSIGHT_BANK_ID = get_config_val("HINDSIGHT_BANK_ID", "incidentmind-default")
 
 DATABASE_PATH = get_config_val("DATABASE_PATH", "incidentmind.db")

@@ -2,7 +2,7 @@
 
 **IncidentMind** is an AI-powered Incident Response Agent for DevOps and Software Engineering teams. It addresses a critical problem in software operations: during production incidents, engineers lose valuable time rediscovering how similar past incidents were diagnosed and resolved.
 
-IncidentMind leverages **Hindsight** as its persistent semantic memory layer to retain confirmed root causes, resolutions, runbooks, and post-mortem lessons across incident lifecycles.
+IncidentMind leverages **Hindsight Cloud** as its persistent semantic memory layer to retain confirmed root causes, resolutions, runbooks, and post-mortem lessons across incident lifecycles.
 
 ---
 
@@ -19,8 +19,8 @@ IncidentMind leverages **Hindsight** as its persistent semantic memory layer to 
 ## 🏗️ Architecture
 
 - **User Interface**: Streamlit (`app.py`)
-- **Persistent Agent Memory**: Hindsight (`hindsight-client`)
-- **Reasoning LLM Engine**: Groq API (`llama-3.3-70b-versatile` or fallback engine)
+- **Persistent Agent Memory**: Hindsight (`hindsight-client` -> `https://api.hindsight.vectorize.io`)
+- **Reasoning LLM Engine**: Groq API (`llama-3.3-70b-versatile` or configurable model)
 - **Structured Database**: SQLite (`database.py`)
 
 ---
@@ -30,7 +30,7 @@ IncidentMind leverages **Hindsight** as its persistent semantic memory layer to 
 ### 1. Prerequisites
 - Python 3.10+
 - (Optional) Groq API Key ([console.groq.com](https://console.groq.com))
-- (Optional) Hindsight Cloud API Key
+- (Optional) Hindsight Cloud API Key ([docs.hindsight.vectorize.io](https://docs.hindsight.vectorize.io/))
 
 ### 2. Installation
 Clone the repository and install requirements:
@@ -48,12 +48,13 @@ cp .env.example .env
 Edit `.env` with your API keys:
 ```env
 GROQ_API_KEY=gsk_your_groq_api_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
 HINDSIGHT_API_KEY=your_hindsight_api_key_here
-HINDSIGHT_API_URL=https://api.hindsight.tech
+HINDSIGHT_API_URL=https://api.hindsight.vectorize.io
 HINDSIGHT_BANK_ID=incidentmind-default
 DATABASE_PATH=incidentmind.db
 ```
-*(Note: If keys are omitted, IncidentMind will run using intelligent local fallback engines for offline testing and offline demonstrations.)*
+*(Note: If keys are omitted, IncidentMind will run using local fallback engines for offline development.)*
 
 ### 4. Run the Application
 Launch Streamlit locally:
@@ -68,7 +69,7 @@ Open your browser at `http://localhost:8501`.
 
 Run the complete pytest test suite:
 ```bash
-pytest -v
+PYTHONPATH=. python3 -m pytest -v
 ```
 
 ---
@@ -81,8 +82,9 @@ pytest -v
 4. Add environment variables in **Secrets**:
    ```toml
    GROQ_API_KEY = "gsk_..."
+   GROQ_MODEL = "llama-3.3-70b-versatile"
    HINDSIGHT_API_KEY = "..."
-   HINDSIGHT_API_URL = "https://api.hindsight.tech"
+   HINDSIGHT_API_URL = "https://api.hindsight.vectorize.io"
    HINDSIGHT_BANK_ID = "incidentmind-prod"
    DATABASE_PATH = "incidentmind.db"
    ```

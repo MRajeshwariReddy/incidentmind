@@ -30,21 +30,6 @@ st.markdown("""
         color: #64748B;
         margin-bottom: 1.5rem;
     }
-    .card {
-        background-color: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        padding: 1.2rem;
-        margin-bottom: 1rem;
-    }
-    .metric-badge {
-        background-color: #3B82F6;
-        color: white;
-        padding: 4px 10px;
-        border-radius: 12px;
-        font-weight: bold;
-        font-size: 0.85rem;
-    }
     .status-open {
         background-color: #FEF2F2;
         color: #991B1B;
@@ -91,6 +76,7 @@ groq_key_set = bool(config.GROQ_API_KEY)
 st.sidebar.markdown(f"**Hindsight Cloud**: {'🟢 Connected' if hs_key_set else '🟡 Fallback Mode'}")
 st.sidebar.markdown(f"**Groq LLM**: {'🟢 Connected' if groq_key_set else '🟡 Fallback Mode'}")
 st.sidebar.caption(f"Bank ID: `{config.HINDSIGHT_BANK_ID}`")
+st.sidebar.caption(f"Model: `{config.GROQ_MODEL}`")
 
 # ---------------------------------------------------------
 # PAGE 1: DASHBOARD
@@ -179,10 +165,13 @@ elif page == "🚨 Submit Incident":
 
                 with st.spinner("Recording incident & recalling Hindsight persistent memory..."):
                     created_id = database.create_incident(incident_payload)
-
-                    # Core recall query
                     query = f"Service: {service}\nDescription: {description}\nLogs: {error_logs}\nChanges: {recent_changes}"
-                    recalled_memories = memory.recall_similar_incidents(query=query, service=service)
+
+                    try:
+                        recalled_memories = memory.recall_similar_incidents(query=query, service=service)
+                    except RuntimeError as e:
+                        st.error(f"⚠️ Hindsight Cloud API Error: Could not reach Hindsight Cloud memory layer.\n\nDetails: {e}")
+                        recalled_memories = []
 
                     # LLM Investigation
                     report = llm.generate_investigation_report(incident_payload, recalled_memories)
@@ -236,9 +225,13 @@ elif page == "🔍 Incident Details & Investigation":
                     st.info("No relevant historical incidents recalled from Hindsight memory. This appears to be a novel issue.")
                 else:
                     for idx, mem in enumerate(recalled, 1):
-                        score = mem.get("relevance_score", 0.0)
                         source = mem.get("source", "Hindsight")
-                        with st.expander(f"Historical Memory #{idx} (Relevance: {score:.2f} | Source: {source})", expanded=True):
+                        mem_type = mem.get("type", "Historical Experience")
+
+                        # Only display score if provided by SDK without fabricating
+                        score_label = f" | Relevance: {mem['relevance_score']:.2f}" if "relevance_score" in mem else ""
+
+                        with st.expander(f"Historical Memory #{idx} ({mem_type} | Source: {source}{score_label})", expanded=True):
                             st.text(mem.get("content", ""))
 
             st.divider()
@@ -262,12 +255,10 @@ elif page == "✅ Resolve & Remember":
     st.markdown("<div class='sub-header'>Record confirmed resolution & store learnings directly into persistent Hindsight memory</div>", unsafe_allow_html=True)
 
     incidents = database.list_incidents(limit=50)
-    open_incidents = [inc for inc in incidents if inc["status"] == "OPEN"]
-
     selected_id = st.session_state.get("selected_incident_id")
 
-    if not open_incidents and not (selected_id and database.get_incident(selected_id)):
-        st.success("All incidents are currently resolved! No open incidents pending resolution.")
+    if not incidents:
+        st.info("No incidents found.")
     else:
         target_options = [inc["incident_id"] for inc in incidents]
         default_index = target_options.index(selected_id) if selected_id in target_options else 0
@@ -279,10 +270,10 @@ elif page == "✅ Resolve & Remember":
             st.info(f"Resolving **{inc['incident_id']}** for service **{inc['service']}**")
 
             with st.form("resolve_form"):
-                root_cause = st.text_area("Confirmed Root Cause", placeholder="Explain what actually caused the incident...")
-                resolution = st.text_area("Resolution Steps Executed", placeholder="Describe step-by-step how the issue was fixed...")
-                runbook = st.text_input("Runbook Used / Created", placeholder="e.g. RB-PAYMENT-RESTART-03")
-                lessons = st.text_area("Lessons Learned / Future Prevention", placeholder="What should be done to prevent this or make diagnosis faster next time?")
+                root_cause = st.text_area("Confirmed Root Cause", value=inc.get("confirmed_root_cause") or "", placeholder="Explain what actually caused the incident...")
+                resolution = st.text_area("Resolution Steps Executed", value=inc.get("resolution") or "", placeholder="Describe step-by-step how the issue was fixed...")
+                runbook = st.text_input("Runbook Used / Created", value=inc.get("runbook_used") or "", placeholder="e.g. RB-PAYMENT-RESTART-03")
+                lessons = st.text_area("Lessons Learned / Future Prevention", value=inc.get("lesson_learned") or "", placeholder="What should be done to prevent this or make diagnosis faster next time?")
 
                 submitted = st.form_submit_button("💾 Save Resolution & Retain in Hindsight Memory", use_container_width=True)
 
@@ -301,21 +292,23 @@ elif page == "✅ Resolve & Remember":
                             )
 
                             # 2. Retain in Hindsight
-                            retain_resp = memory.retain_incident_resolution(
-                                incident_id=target_id,
-                                service=inc["service"],
-                                severity=inc["severity"],
-                                description=inc["description"],
-                                error_logs=inc.get("error_logs", ""),
-                                recent_changes=inc.get("recent_changes", ""),
-                                confirmed_root_cause=root_cause,
-                                resolution=resolution,
-                                runbook_used=runbook,
-                                lesson_learned=lessons
-                            )
-
-                        st.success(f"Incident {target_id} marked RESOLVED! Experience retained in Hindsight memory.")
-                        st.json(retain_resp)
+                            try:
+                                retain_resp = memory.retain_incident_resolution(
+                                    incident_id=target_id,
+                                    service=inc["service"],
+                                    severity=inc["severity"],
+                                    description=inc["description"],
+                                    error_logs=inc.get("error_logs", ""),
+                                    recent_changes=inc.get("recent_changes", ""),
+                                    confirmed_root_cause=root_cause,
+                                    resolution=resolution,
+                                    runbook_used=runbook,
+                                    lesson_learned=lessons
+                                )
+                                st.success(f"Incident {target_id} marked RESOLVED! Experience retained in Hindsight memory.")
+                                st.json(retain_resp)
+                            except RuntimeError as e:
+                                st.error(f"⚠️ Hindsight Cloud API Error: Could not retain memory in Hindsight Cloud.\n\nDetails: {e}")
 
 # ---------------------------------------------------------
 # PAGE 5: LEARNING DEMONSTRATION
@@ -323,27 +316,32 @@ elif page == "✅ Resolve & Remember":
 elif page == "🧪 Learning Demonstration":
     st.markdown("<div class='main-header'>Hindsight Learning Demonstration</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='sub-header'>Demonstrate the complete memory loop: Initial Investigation (no memory) ➡️ Resolution Retained ➡️ Second Investigation (memory recalled)</div>",
+        "<div class='sub-header'>Demonstrate the complete learning loop: First Investigation (zero memory) ➡️ Resolution Retained ➡️ Second Investigation (memory recalled)</div>",
         unsafe_allow_html=True
     )
 
     st.markdown("""
-    ### 🔄 How the Learning Demonstration Works:
-    1. **Incident 1 (First Encounter)**: A database connection pool exhaustion occurs on `payment-gateway`. AI investigates with **no historical memory**.
-    2. **Resolve & Retain**: Engineer resolves Incident 1 (increasing connection limit in `pg_hba.conf`) and retains this lesson in Hindsight.
-    3. **Incident 2 (Second Similar Encounter)**: A similar database connection timeout occurs on `payment-gateway`.
-    4. **AI Recall & Response**: AI recalls the previous resolution from Hindsight and provides a **targeted, memory-driven recommendation**.
+    ### 🔄 Learning Demonstration Sequence:
+    1. **STEP 1 & 2**: Create a fresh, isolated demonstration memory bank to guarantee **zero prior memory**.
+    2. **STEP 3**: Investigate Incident 1 with zero prior memory and explicitly display `Historical memories recalled: 0`.
+    3. **STEP 4 & 5**: Record confirmed resolution, root cause, and lesson learned, then actually **retain experience into Hindsight**.
+    4. **STEP 6 & 7**: Submit Incident 2 (similar symptoms) and perform recall from Hindsight.
+    5. **STEP 8 & 9**: Show the recalled experience and generate the memory-informed AI investigation report.
     """)
 
-    if st.button("🚀 Run Full Interactive Learning Loop Demo", type="primary", use_container_width=True):
+    if st.button("🚀 Run Interactive Learning Demonstration", type="primary", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Step 1: Submit Incident 1
-        status_text.write("Step 1/4: Submitting first incident (No prior memory)...")
-        progress_bar.progress(20)
+        # STEP 1: Create isolated bank ID
+        timestamp_str = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+        demo_bank_id = f"demo-bank-{timestamp_str}"
 
-        inc1_id = f"DEMO-1-{datetime.utcnow().strftime('%H%M%S')}"
+        status_text.write(f"Step 1/9: Initializing fresh isolated memory bank `{demo_bank_id}`...")
+        progress_bar.progress(10)
+
+        # STEP 2 & 3: Submit Incident 1 and perform recall against the fresh bank
+        inc1_id = f"DEMO-1-{timestamp_str}"
         inc1_data = {
             "incident_id": inc1_id,
             "service": "payment-gateway",
@@ -355,39 +353,62 @@ elif page == "🧪 Learning Demonstration":
             "status": "OPEN"
         }
         database.create_incident(inc1_data)
-        mem1 = memory.recall_similar_incidents(query=f"{inc1_data['description']} {inc1_data['error_logs']}", service="payment-gateway")
+
+        status_text.write("Step 2 & 3/9: Investigating Incident 1 against fresh bank...")
+        progress_bar.progress(30)
+
+        try:
+            mem1 = memory.recall_similar_incidents(
+                query=f"{inc1_data['description']} {inc1_data['error_logs']}",
+                service="payment-gateway",
+                bank_id=demo_bank_id
+            )
+        except RuntimeError as e:
+            st.error(f"⚠️ Hindsight Cloud API error during demo recall: {e}")
+            mem1 = []
+
         report1 = llm.generate_investigation_report(inc1_data, mem1)
         database.update_incident_investigation(inc1_id, report1, mem1)
 
-        # Step 2: Resolve & Retain Incident 1
-        status_text.write("Step 2/4: Engineer resolves Incident 1 & retains experience in Hindsight...")
-        progress_bar.progress(50)
+        # STEP 4 & 5: Record resolution and retain in Hindsight
+        status_text.write("Step 4 & 5/9: Recording resolution & retaining experience in Hindsight...")
+        progress_bar.progress(60)
+
+        root_cause_1 = "max_connections limit (100) reached in PostgreSQL master due to leak in v1.2.0 client library."
+        resolution_1 = "Increased max_connections to 300 and restarted connection pooler pgBouncer."
+        runbook_1 = "RB-PG-CONN-RECOVERY"
+        lesson_1 = "Set alert threshold at 80% connection capacity and check pgBouncer client leak."
 
         database.resolve_incident(
             incident_id=inc1_id,
-            confirmed_root_cause="max_connections limit (100) reached in PostgreSQL master due to leak in v1.2.0 client library.",
-            resolution="Increased max_connections to 300 and restarted connection pooler pgBouncer.",
-            runbook_used="RB-PG-CONN-RECOVERY",
-            lesson_learned="Set alert threshold at 80% connection capacity and check pgBouncer client leak."
-        )
-        memory.retain_incident_resolution(
-            incident_id=inc1_id,
-            service="payment-gateway",
-            severity="CRITICAL",
-            description=inc1_data["description"],
-            error_logs=inc1_data["error_logs"],
-            recent_changes=inc1_data["recent_changes"],
-            confirmed_root_cause="max_connections limit (100) reached in PostgreSQL master due to leak in v1.2.0 client library.",
-            resolution="Increased max_connections to 300 and restarted connection pooler pgBouncer.",
-            runbook_used="RB-PG-CONN-RECOVERY",
-            lesson_learned="Set alert threshold at 80% connection capacity and check pgBouncer client leak."
+            confirmed_root_cause=root_cause_1,
+            resolution=resolution_1,
+            runbook_used=runbook_1,
+            lesson_learned=lesson_1
         )
 
-        # Step 3: Submit Incident 2
-        status_text.write("Step 3/4: Submitting second similar incident (Triggering Hindsight Recall)...")
-        progress_bar.progress(80)
+        try:
+            memory.retain_incident_resolution(
+                incident_id=inc1_id,
+                service="payment-gateway",
+                severity="CRITICAL",
+                description=inc1_data["description"],
+                error_logs=inc1_data["error_logs"],
+                recent_changes=inc1_data["recent_changes"],
+                confirmed_root_cause=root_cause_1,
+                resolution=resolution_1,
+                runbook_used=runbook_1,
+                lesson_learned=lesson_1,
+                bank_id=demo_bank_id
+            )
+        except RuntimeError as e:
+            st.error(f"⚠️ Hindsight Cloud API error during demo retain: {e}")
 
-        inc2_id = f"DEMO-2-{datetime.utcnow().strftime('%H%M%S')}"
+        # STEP 6, 7, 8, 9: Submit Incident 2, Recall memory from Hindsight, Generate Report
+        status_text.write("Step 6-9/9: Submitting Incident 2, recalling memory, and generating investigation...")
+        progress_bar.progress(90)
+
+        inc2_id = f"DEMO-2-{timestamp_str}"
         inc2_data = {
             "incident_id": inc2_id,
             "service": "payment-gateway",
@@ -399,26 +420,38 @@ elif page == "🧪 Learning Demonstration":
             "status": "OPEN"
         }
         database.create_incident(inc2_data)
-        mem2 = memory.recall_similar_incidents(query=f"{inc2_data['description']} {inc2_data['error_logs']}", service="payment-gateway")
+
+        try:
+            mem2 = memory.recall_similar_incidents(
+                query=f"{inc2_data['description']} {inc2_data['error_logs']}",
+                service="payment-gateway",
+                bank_id=demo_bank_id
+            )
+        except RuntimeError as e:
+            st.error(f"⚠️ Hindsight Cloud API error during demo recall: {e}")
+            mem2 = []
+
         report2 = llm.generate_investigation_report(inc2_data, mem2)
         database.update_incident_investigation(inc2_id, report2, mem2)
 
         progress_bar.progress(100)
-        status_text.success("Interactive Learning Loop Complete!")
+        status_text.success(f"Demonstration Complete! Tested against Bank: `{demo_bank_id}`")
 
-        # Side-by-Side Comparison
+        # Display Results Side-by-Side
         st.divider()
         st.subheader("📊 Side-by-Side Learning Comparison")
 
         col_a, col_b = st.columns(2)
         with col_a:
             st.markdown(f"### 1️⃣ First Encounter (`{inc1_id}`)")
-            st.markdown(f"**Recalled Memories**: `{len(mem1)}` (No prior context)")
+            st.info(f"**Historical memories recalled: {len(mem1)}**")
+            st.caption("No prior experience existed in Hindsight memory bank.")
             st.markdown(report1)
 
         with col_b:
             st.markdown(f"### 2️⃣ Second Encounter (`{inc2_id}`)")
-            st.markdown(f"**Recalled Memories**: `{len(mem2)}` (Hindsight memory active)")
+            st.success(f"**Historical memories recalled: {len(mem2)}**")
             for idx, m in enumerate(mem2, 1):
-                st.success(f"🧠 Recalled Memory #{idx}: {m.get('content')[:120]}...")
+                st.markdown(f"**Recalled Experience #{idx}:**")
+                st.code(m.get('content', ''), language="text")
             st.markdown(report2)

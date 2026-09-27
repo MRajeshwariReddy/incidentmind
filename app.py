@@ -3,6 +3,7 @@ import database
 import memory
 import llm
 import config
+from agent import IncidentInvestigationAgent
 from datetime import datetime
 
 # Page configuration
@@ -13,8 +14,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize DB
+# Initialize DB & Agent
 database.init_db()
+agent_orchestrator = IncidentInvestigationAgent()
 
 # Styling
 st.markdown("""
@@ -163,23 +165,19 @@ elif page == "🚨 Submit Incident":
                     "status": "OPEN"
                 }
 
-                with st.spinner("Recording incident & recalling Hindsight persistent memory..."):
+                with st.spinner("Recording incident & triggering AI Incident Response Agent..."):
                     created_id = database.create_incident(incident_payload)
-                    query = f"Service: {service}\nDescription: {description}\nLogs: {error_logs}\nChanges: {recent_changes}"
 
-                    try:
-                        recalled_memories = memory.recall_similar_incidents(query=query, service=service)
-                    except RuntimeError as e:
-                        st.error(f"⚠️ Hindsight Cloud API Error: Could not reach Hindsight Cloud memory layer.\n\nDetails: {e}")
-                        recalled_memories = []
+                    # Execute investigation through isolated Agent Orchestrator
+                    res = agent_orchestrator.investigate(incident_id=created_id)
 
-                    # LLM Investigation
-                    report = llm.generate_investigation_report(incident_payload, recalled_memories)
+                    report = res["investigation_report"]
+                    recalled_memories = res["recalled_memories"]
 
                     # Store report & recalled memories
                     database.update_incident_investigation(created_id, report, recalled_memories)
 
-                st.success(f"Incident {created_id} created & investigated successfully!")
+                st.success(f"Incident {created_id} created & investigated successfully by AI Agent!")
                 st.session_state["selected_incident_id"] = created_id
                 st.rerun()
 
@@ -227,7 +225,6 @@ elif page == "🔍 Incident Details & Investigation":
                     for idx, mem in enumerate(recalled, 1):
                         source = mem.get("source", "Hindsight")
                         mem_type = mem.get("type", "Historical Experience")
-
                         score_label = f" | Relevance: {mem['relevance_score']:.2f}" if "relevance_score" in mem else ""
 
                         with st.expander(f"Historical Memory #{idx} ({mem_type} | Source: {source}{score_label})", expanded=True):
@@ -348,7 +345,7 @@ elif page == "🧪 Learning Demonstration":
             demo_failed = True
 
         if not demo_failed:
-            # STEP 2 & 3: Submit Incident 1 and perform recall against the fresh bank
+            # STEP 2 & 3: Submit Incident 1 and run investigation agent against the fresh bank
             inc1_id = f"DEMO-1-{timestamp_str}"
             inc1_data = {
                 "incident_id": inc1_id,
@@ -362,24 +359,15 @@ elif page == "🧪 Learning Demonstration":
             }
             database.create_incident(inc1_data)
 
-            status_text.write("Step 2 & 3/6: Performing initial recall on fresh bank & generating report...")
+            status_text.write("Step 2 & 3/6: Running Investigation Agent on fresh bank...")
             progress_bar.progress(35)
 
-            try:
-                mem1 = memory.recall_similar_incidents(
-                    query=f"{inc1_data['description']} {inc1_data['error_logs']}",
-                    service="payment-gateway",
-                    bank_id=demo_bank_id
-                )
-            except RuntimeError as e:
-                st.error(f"❌ Hindsight Cloud Error: Initial recall failed on bank `{demo_bank_id}`.\n\nDetails: {e}")
-                demo_failed = True
-                mem1 = []
-
-        if not demo_failed:
-            report1 = llm.generate_investigation_report(inc1_data, mem1)
+            res1 = agent_orchestrator.investigate(incident_id=inc1_id, bank_id=demo_bank_id)
+            report1 = res1["investigation_report"]
+            mem1 = res1["recalled_memories"]
             database.update_incident_investigation(inc1_id, report1, mem1)
 
+        if not demo_failed:
             # STEP 4: Record resolution and retain in Hindsight
             status_text.write("Step 4/6: Recording resolution & retaining experience into Hindsight bank...")
             progress_bar.progress(65)
@@ -416,8 +404,8 @@ elif page == "🧪 Learning Demonstration":
                 demo_failed = True
 
         if not demo_failed:
-            # STEP 5 & 6: Submit Incident 2, Recall memory from Hindsight, Generate Report
-            status_text.write("Step 5 & 6/6: Submitting Incident 2 & recalling retained experience...")
+            # STEP 5 & 6: Submit Incident 2, Run Investigation Agent against bank
+            status_text.write("Step 5 & 6/6: Submitting Incident 2 & running Investigation Agent...")
             progress_bar.progress(90)
 
             inc2_id = f"DEMO-2-{timestamp_str}"
@@ -433,19 +421,9 @@ elif page == "🧪 Learning Demonstration":
             }
             database.create_incident(inc2_data)
 
-            try:
-                mem2 = memory.recall_similar_incidents(
-                    query=f"{inc2_data['description']} {inc2_data['error_logs']}",
-                    service="payment-gateway",
-                    bank_id=demo_bank_id
-                )
-            except RuntimeError as e:
-                st.error(f"❌ Hindsight Cloud Error: Second recall failed on bank `{demo_bank_id}`.\n\nDetails: {e}")
-                demo_failed = True
-                mem2 = []
-
-        if not demo_failed:
-            report2 = llm.generate_investigation_report(inc2_data, mem2)
+            res2 = agent_orchestrator.investigate(incident_id=inc2_id, bank_id=demo_bank_id)
+            report2 = res2["investigation_report"]
+            mem2 = res2["recalled_memories"]
             database.update_incident_investigation(inc2_id, report2, mem2)
 
             progress_bar.progress(100)

@@ -20,7 +20,7 @@ IncidentMind leverages **Hindsight Cloud** as its persistent semantic memory lay
 
 - **User Interface**: Streamlit (`app.py`)
 - **Persistent Agent Memory**: Hindsight (`hindsight-client` -> `https://api.hindsight.vectorize.io`)
-- **Reasoning LLM Engine**: Groq API (`llama-3.3-70b-versatile` or configurable model)
+- **Reasoning LLM Engine**: Groq API (`openai/gpt-oss-120b` or configurable model)
 - **Structured Database**: SQLite (`database.py`)
 
 ---
@@ -48,7 +48,7 @@ cp .env.example .env
 Edit `.env` with your API keys:
 ```env
 GROQ_API_KEY=gsk_your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=openai/gpt-oss-120b
 HINDSIGHT_API_KEY=your_hindsight_api_key_here
 HINDSIGHT_API_URL=https://api.hindsight.vectorize.io
 HINDSIGHT_BANK_ID=incidentmind-default
@@ -82,7 +82,7 @@ PYTHONPATH=. python3 -m pytest -v
 4. Add environment variables in **Secrets**:
    ```toml
    GROQ_API_KEY = "gsk_..."
-   GROQ_MODEL = "llama-3.3-70b-versatile"
+   GROQ_MODEL = "openai/gpt-oss-120b"
    HINDSIGHT_API_KEY = "..."
    HINDSIGHT_API_URL = "https://api.hindsight.vectorize.io"
    HINDSIGHT_BANK_ID = "incidentmind-prod"

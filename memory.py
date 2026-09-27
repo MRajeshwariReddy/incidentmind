@@ -27,6 +27,29 @@ def get_hindsight_client():
         logger.error(f"Failed to initialize Hindsight client: {e}")
         return None
 
+def create_memory_bank(bank_id: str, name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Explicitly creates a memory bank in Hindsight Cloud.
+    If HINDSIGHT_API_KEY is configured, calls real Hindsight client.
+    Raises RuntimeError if Hindsight Cloud API call fails.
+    """
+    client = get_hindsight_client()
+    bank_name = name or f"IncidentMind Bank {bank_id}"
+    if client:
+        try:
+            resp = client.create_bank(bank_id=bank_id, name=bank_name)
+            return {"status": "success", "source": "hindsight_cloud", "response": str(resp)}
+        except Exception as e:
+            # Check if bank already exists (often returns error or success)
+            err_str = str(e)
+            if "already exists" in err_str.lower() or "conflict" in err_str.lower():
+                return {"status": "already_exists", "source": "hindsight_cloud"}
+            err_msg = f"Failed to create Hindsight memory bank '{bank_id}': {e}"
+            logger.error(err_msg)
+            raise RuntimeError(err_msg) from e
+    else:
+        return {"status": "success", "source": "local_fallback", "message": f"Local bank '{bank_id}' created"}
+
 def retain_incident_resolution(
     incident_id: str,
     service: str,
@@ -73,10 +96,7 @@ def retain_incident_resolution(
     if client:
         # Hindsight Cloud is configured - use real Hindsight Cloud
         try:
-            try:
-                client.create_bank(bank_id=bank, name=f"IncidentMind Bank {bank}")
-            except Exception:
-                pass # Bank may already exist
+            create_memory_bank(bank_id=bank)
 
             response = client.retain(
                 bank_id=bank,
@@ -88,7 +108,6 @@ def retain_incident_resolution(
         except Exception as e:
             err_msg = f"Hindsight Cloud API retain failed for bank '{bank}': {e}"
             logger.error(err_msg)
-            # Do NOT silently fallback if credentials are explicitly configured
             raise RuntimeError(err_msg) from e
     else:
         # Local fallback mode when no credentials are provided
@@ -159,7 +178,6 @@ def recall_similar_incidents(
         except Exception as e:
             err_msg = f"Hindsight Cloud API recall failed for bank '{bank}': {e}"
             logger.error(err_msg)
-            # Do NOT silently fallback if credentials are explicitly configured
             raise RuntimeError(err_msg) from e
     else:
         # Local fallback mode when no credentials are provided

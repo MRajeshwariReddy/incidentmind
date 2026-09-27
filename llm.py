@@ -52,7 +52,6 @@ def generate_investigation_report(
     """
     Generates an investigation report using Groq LLM API or structured fallbacks if API is unconfigured.
     """
-    # Format current incident details
     incident_details = (
         f"Incident ID: {incident.get('incident_id', 'N/A')}\n"
         f"Service: {incident.get('service', 'N/A')}\n"
@@ -63,13 +62,12 @@ def generate_investigation_report(
         f"Timestamp: {incident.get('timestamp', 'N/A')}\n"
     )
 
-    # Format recalled memories
     if recalled_memories:
         memories_text = "RECALLED HISTORICAL INCIDENTS FROM HINDSIGHT MEMORY:\n\n"
         for idx, mem in enumerate(recalled_memories, 1):
-            score = mem.get("relevance_score", 0.0)
+            score_str = f" (Relevance Score: {mem['relevance_score']:.2f})" if "relevance_score" in mem else ""
             content = mem.get("content", "")
-            memories_text += f"--- Memory #{idx} (Relevance Score: {score:.2f}) ---\n{content}\n\n"
+            memories_text += f"--- Memory #{idx}{score_str} ---\n{content}\n\n"
     else:
         memories_text = "RECALLED HISTORICAL INCIDENTS FROM HINDSIGHT MEMORY:\nNone found. This incident has no matching historical records in memory.\n"
 
@@ -83,7 +81,7 @@ def generate_investigation_report(
     if client:
         try:
             response = client.chat.completions.create(
-                model=config.GROQ_MODEL or "llama-3.3-70b-versatile",
+                model=config.GROQ_MODEL or "openai/gpt-oss-120b",
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}

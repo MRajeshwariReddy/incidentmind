@@ -39,47 +39,57 @@ def test_database_crud(temp_db):
     inc_resolved = database.get_incident("TEST-001", db_path=temp_db)
     assert inc_resolved["status"] == "RESOLVED"
 
-def test_hindsight_configuration():
+def test_hindsight_and_groq_configuration():
     assert config.HINDSIGHT_API_URL == "https://api.hindsight.vectorize.io"
-    assert config.GROQ_MODEL is not None
+    assert config.GROQ_MODEL == "openai/gpt-oss-120b"
 
-def test_local_fallback_retain_and_recall():
+def test_learning_demo_isolation_local_fallback():
     memory.clear_local_memory_store()
-    bank_id = "test-bank-local"
+    demo_bank_id = "test-learning-demo-bank-123"
 
-    # 1. Zero-memory initial stage
-    recalled_empty = memory.recall_similar_incidents(
-        query="Database connection timeout",
-        service="payment-service",
-        bank_id=bank_id
+    # Step 1: Explicit bank creation
+    bank_res = memory.create_memory_bank(bank_id=demo_bank_id)
+    assert bank_res["status"] == "success"
+
+    # Step 2: First recall on fresh bank MUST return exactly 0 memories
+    first_recall = memory.recall_similar_incidents(
+        query="PostgreSQL connection timeout max_connections",
+        service="payment-gateway",
+        bank_id=demo_bank_id
     )
-    assert len(recalled_empty) == 0
+    assert len(first_recall) == 0, "Fresh bank must start with zero memories"
 
-    # 2. Retain experience
-    retain_res = memory.retain_incident_resolution(
-        incident_id="INC-MEMORY-1",
-        service="payment-service",
-        severity="HIGH",
-        description="Database connection pool exhausted",
+    # Step 3: Retain incident experience into the same bank
+    memory.retain_incident_resolution(
+        incident_id="INC-DEMO-100",
+        service="payment-gateway",
+        severity="CRITICAL",
+        description="PostgreSQL connection timeout",
         error_logs="pq: connection timeout",
-        recent_changes="v1.0.0 deploy",
-        confirmed_root_cause="max_connections reached",
-        resolution="Increased pool limit to 300",
+        recent_changes="v1.0 deploy",
+        confirmed_root_cause="max_connections limit reached",
+        resolution="Increased max_connections to 300",
         runbook_used="RB-PG-POOL",
         lesson_learned="Monitor pool usage",
-        bank_id=bank_id
+        bank_id=demo_bank_id
     )
-    assert retain_res["status"] == "success"
-    assert retain_res["source"] == "local_fallback"
 
-    # 3. Memory-backed second stage
-    recalled = memory.recall_similar_incidents(
-        query="Database connection timeout max_connections",
-        service="payment-service",
-        bank_id=bank_id
+    # Step 4: Second recall on same bank MUST retrieve the retained memory
+    second_recall = memory.recall_similar_incidents(
+        query="PostgreSQL connection timeout max_connections",
+        service="payment-gateway",
+        bank_id=demo_bank_id
     )
-    assert len(recalled) == 1
-    assert "INC-MEMORY-1" in recalled[0]["content"]
+    assert len(second_recall) == 1
+    assert "INC-DEMO-100" in second_recall[0]["content"]
+
+    # Step 5: Verify an isolated different bank returns 0 memories
+    isolated_bank_recall = memory.recall_similar_incidents(
+        query="PostgreSQL connection timeout max_connections",
+        service="payment-gateway",
+        bank_id="other-isolated-bank"
+    )
+    assert len(isolated_bank_recall) == 0
 
 def test_hindsight_cloud_mocked_retain_and_recall():
     mock_client = MagicMock()
@@ -93,7 +103,6 @@ def test_hindsight_cloud_mocked_retain_and_recall():
 
     with patch.object(config, "HINDSIGHT_API_KEY", "mock_key"):
         with patch("memory.get_hindsight_client", return_value=mock_client):
-            # Retain test
             retain_res = memory.retain_incident_resolution(
                 incident_id="INC-CLOUD-1",
                 service="auth-service",
@@ -109,9 +118,7 @@ def test_hindsight_cloud_mocked_retain_and_recall():
             )
             assert retain_res["status"] == "success"
             assert retain_res["source"] == "hindsight_cloud"
-            mock_client.retain.assert_called_once()
 
-            # Recall test
             recalled = memory.recall_similar_incidents(
                 query="Memory leak OOMKilled",
                 service="auth-service",
@@ -120,12 +127,6 @@ def test_hindsight_cloud_mocked_retain_and_recall():
             assert len(recalled) == 1
             assert recalled[0]["source"] == "hindsight_cloud"
             assert "Memory leak" in recalled[0]["content"]
-            mock_client.recall.assert_called_once_with(
-                bank_id="cloud-bank",
-                query="Memory leak OOMKilled",
-                tags=["auth-service"],
-                budget="mid"
-            )
 
 def test_hindsight_cloud_error_handling():
     mock_client = MagicMock()

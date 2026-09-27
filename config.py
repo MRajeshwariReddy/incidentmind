@@ -19,7 +19,7 @@ def get_config_val(key: str, default: str = "") -> str:
     return default
 
 GROQ_API_KEY = get_config_val("GROQ_API_KEY", "")
-GROQ_MODEL = get_config_val("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = get_config_val("GROQ_MODEL", "openai/gpt-oss-120b")
 
 HINDSIGHT_API_KEY = get_config_val("HINDSIGHT_API_KEY", "")
 HINDSIGHT_API_URL = get_config_val("HINDSIGHT_API_URL", "https://api.hindsight.vectorize.io")

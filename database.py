@@ -30,11 +30,23 @@ def init_db(db_path: Optional[str] = None) -> None:
             runbook_used TEXT,
             lesson_learned TEXT,
             resolved_at TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+	    memory_retained INTEGER NOT NULL DEFAULT 0
         )
     """)
     conn.commit()
+
+    # Migrate existing databases that predate the memory_retained column.
+    cursor.execute("PRAGMA table_info(incidents)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "memory_retained" not in columns:
+        cursor.execute(
+            "ALTER TABLE incidents ADD COLUMN memory_retained INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.commit()
+
     conn.close()
+
 
 def create_incident(incident_data: Dict[str, Any], db_path: Optional[str] = None) -> str:
     init_db(db_path)
@@ -121,6 +133,20 @@ def resolve_incident(
     conn.commit()
     conn.close()
 
+def mark_memory_retained(
+    incident_id: str,
+    db_path: Optional[str] = None
+) -> None:
+    conn = get_db_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE incidents
+        SET memory_retained = 1
+        WHERE incident_id = ?
+    """, (incident_id,))
+    conn.commit()
+    conn.close()
+
 def get_incident(incident_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     conn = get_db_connection(db_path)
     cursor = conn.cursor()
@@ -190,11 +216,15 @@ def get_dashboard_stats(db_path: Optional[str] = None) -> Dict[str, Any]:
     cursor.execute("SELECT COUNT(*) FROM incidents WHERE recalled_memories IS NOT NULL AND recalled_memories != '[]'")
     incidents_with_recall = cursor.fetchone()[0]
     
+    cursor.execute("SELECT COUNT(*) FROM incidents WHERE memory_retained = 1")
+    retained_memories = cursor.fetchone()[0]
+
     conn.close()
     
     return {
         "total_incidents": total_incidents,
         "resolved_incidents": resolved_incidents,
         "open_incidents": open_incidents,
-        "incidents_with_recall": incidents_with_recall
+        "incidents_with_recall": incidents_with_recall,
+        "retained_memories": retained_memories
     }

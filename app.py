@@ -104,7 +104,7 @@ if page == "📊 Dashboard":
     with col3:
         st.metric("Resolved Incidents", stats["resolved_incidents"])
     with col4:
-        st.metric("Retained Memories", mem_stats["total_retained_memories"])
+        st.metric("Retained Memories", database.get_dashboard_stats()["retained_memories"])
 
     st.divider()
 
@@ -316,6 +316,7 @@ elif page == "✅ Resolve & Remember":
                                     runbook_used=runbook,
                                     lesson_learned=lessons
                                 )
+                                database.mark_memory_retained(target_id)
                                 st.success(f"Incident {target_id} marked RESOLVED! Experience retained in Hindsight memory.")
                             except RuntimeError as e:
                                 st.error(f"⚠️ Hindsight Cloud API Error: Could not retain memory in Hindsight Cloud.\n\nDetails: {e}")

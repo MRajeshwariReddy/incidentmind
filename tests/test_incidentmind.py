@@ -154,3 +154,26 @@ def test_llm_report_generation():
     report = llm.generate_investigation_report(inc, recalled_mems)
     assert report is not None
     assert len(report) > 50
+
+
+def test_memory_retained_counter(temp_db):
+    inc_data = {
+        "incident_id": "TEST-MEM-001",
+        "service": "test-service",
+        "severity": "HIGH",
+        "description": "Memory retention test",
+        "error_logs": "test error",
+        "recent_changes": "test deployment",
+        "timestamp": "2025-01-01T00:00:00Z",
+        "status": "OPEN"
+    }
+
+    database.create_incident(inc_data, db_path=temp_db)
+
+    stats_before = database.get_dashboard_stats(db_path=temp_db)
+    assert stats_before["retained_memories"] == 0
+
+    database.mark_memory_retained("TEST-MEM-001", db_path=temp_db)
+
+    stats_after = database.get_dashboard_stats(db_path=temp_db)
+    assert stats_after["retained_memories"] == 1

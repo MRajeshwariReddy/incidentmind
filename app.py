@@ -58,15 +58,21 @@ st.sidebar.image("https://img.icons8.com/color/96/brain--v1.png", width=64)
 st.sidebar.title("IncidentMind")
 st.sidebar.caption("AI Incident Response with Hindsight Memory")
 
+if "navigation_page" not in st.session_state:
+    st.session_state["navigation_page"] = "📊 Dashboard"
+
+pages = [
+    "📊 Dashboard",
+    "🚨 Submit Incident",
+    "🔍 Incident Details & Investigation",
+    "✅ Resolve & Remember",
+    "🧪 Learning Demonstration"
+]
+
 page = st.sidebar.radio(
     "Navigation",
-    [
-        "📊 Dashboard",
-        "🚨 Submit Incident",
-        "🔍 Incident Details & Investigation",
-        "✅ Resolve & Remember",
-        "🧪 Learning Demonstration"
-    ]
+    pages,
+    index=pages.index(st.session_state["navigation_page"])
 )
 
 st.sidebar.divider()
@@ -242,7 +248,7 @@ elif page == "🔍 Incident Details & Investigation":
             if inc['status'] == "OPEN":
                 if st.button("➡️ Proceed to Resolve & Remember", type="primary"):
                     st.session_state["selected_incident_id"] = inc['incident_id']
-                    st.session_state["nav_to_resolve"] = True
+                    st.session_state["navigation_page"] = "✅ Resolve & Remember"
                     st.rerun()
 
 # ---------------------------------------------------------
@@ -304,7 +310,6 @@ elif page == "✅ Resolve & Remember":
                                     lesson_learned=lessons
                                 )
                                 st.success(f"Incident {target_id} marked RESOLVED! Experience retained in Hindsight memory.")
-                                st.json(retain_resp)
                             except RuntimeError as e:
                                 st.error(f"⚠️ Hindsight Cloud API Error: Could not retain memory in Hindsight Cloud.\n\nDetails: {e}")
 

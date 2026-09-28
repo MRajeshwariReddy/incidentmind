@@ -184,14 +184,21 @@ elif page == "🚨 Submit Incident":
                     # Store report & recalled memories
                     database.update_incident_investigation(created_id, report, recalled_memories)
 
-                st.success(f"Incident {created_id} created & investigated successfully by AI Agent!")
                 st.session_state["selected_incident_id"] = created_id
+                st.session_state["incident_submitted_message"] = (
+                    f"Incident {created_id} submitted successfully! "
+                    "AI investigation has been completed."
+                )
+                st.session_state["navigation_page"] = "🔍 Incident Details & Investigation"
                 st.rerun()
 
 # ---------------------------------------------------------
 # PAGE 3: INCIDENT DETAILS & INVESTIGATION
 # ---------------------------------------------------------
 elif page == "🔍 Incident Details & Investigation":
+    if "incident_submitted_message" in st.session_state:
+        st.success(f"✅ {st.session_state.pop('incident_submitted_message')}")
+
     st.markdown("<div class='main-header'>AI Investigation & Memory Recall</div>", unsafe_allow_html=True)
     
     selected_id = st.session_state.get("selected_incident_id")

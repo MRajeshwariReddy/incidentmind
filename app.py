@@ -126,6 +126,7 @@ if page == "📊 Dashboard":
                 with cols[5]:
                     if st.button("Inspect", key=f"inspect_{inc['incident_id']}"):
                         st.session_state["selected_incident_id"] = inc['incident_id']
+                        st.session_state["navigation_page"] = "🔍 Incident Details & Investigation"
                         st.rerun()
 
 # ---------------------------------------------------------
